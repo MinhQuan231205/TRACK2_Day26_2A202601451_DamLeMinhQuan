@@ -531,28 +531,33 @@ def test_prosecute_stays_well_under_the_five_second_deadline_even_on_a_large_tra
     assert result["v"] == 1
 
 
-def test_starter_end_to_end_against_the_full_fixture_set(labelled_fixtures):
+def test_prosecutor_end_to_end_against_the_full_fixture_set(labelled_fixtures):
+    """All 17 classes implemented: every detector must catch its own positive AND
+    near-miss fixture, and none may file a `false` claim on any other fixture
+    (including the 6 clean traces) -- a false claim costs 0.8*weight, so the
+    fixture set is the proof that each detector's discriminator actually holds."""
     report = score_prosecutor(prosecute, labelled_fixtures)
 
     assert report["n_fixtures"] == len(labelled_fixtures)
     assert report["n_errors"] == 0
     assert report["n_timeouts"] == 0
-    assert report["false"] == 0, "the starter's one detector must never file a false claim on this fixture set"
-    assert report["rejected"] == 0, "the starter must never emit a schema-invalid or over-quota claim on its own"
+    assert report["false"] == 0, (
+        f"no detector may file a false claim on this fixture set: "
+        f"{[ (c, s['false']) for c, s in report['per_class'].items() if s['false'] ]}"
+    )
+    assert report["rejected"] == 0, "prosecute() must never emit a schema-invalid or over-quota claim on its own"
 
-    # precision perfect: it never guesses wrong when it does file
     assert report["precision"] == 1.0
-    # recall low: it implements exactly 1 of 17 classes
-    assert 0.0 < report["recall"] < 0.15
     assert report["false_claim_rate"] == 0.0
+    assert report["recall"] >= 0.9, f"near-total recall expected on the proxy, got {report['recall']:.3f}"
 
-    assert report["per_class"]["enforcement_failure"]["recall"] == 1.0
-    assert report["per_class"]["enforcement_failure"]["present"] == 2
-    assert report["per_class"]["enforcement_failure"]["verified"] == 2
-    # every other class: present in the fixtures, but never claimed (stub hooks)
-    for cls in CLASSES - {"enforcement_failure"}:
-        assert report["per_class"][cls]["present"] >= 2
-        assert report["per_class"][cls]["claimed"] == 0
+    for cls in CLASSES:
+        stats = report["per_class"][cls]
+        assert stats["present"] >= 2, cls
+        assert stats["verified"] == stats["present"], (
+            f"{cls}: verified {stats['verified']}/{stats['present']} -- detector missed a fixture "
+            f"(unproven={stats['unproven']}, false={stats['false']})"
+        )
 
 
 def test_starter_files_nothing_on_clean_fixtures(labelled_fixtures):
